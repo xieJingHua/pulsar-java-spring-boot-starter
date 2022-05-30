@@ -1,13 +1,12 @@
 package io.github.majusko.pulsar.producer;
 
+import io.github.majusko.pulsar.PulsarClientContainer;
 import io.github.majusko.pulsar.annotation.PulsarProducer;
 import io.github.majusko.pulsar.collector.ProducerHolder;
 import io.github.majusko.pulsar.error.exception.ProducerInitException;
-import io.github.majusko.pulsar.properties.PulsarProperties;
 import io.github.majusko.pulsar.utils.SchemaUtils;
 import io.github.majusko.pulsar.utils.UrlBuildService;
 import org.apache.pulsar.client.api.Producer;
-import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.*;
@@ -24,19 +23,18 @@ import java.util.stream.Collectors;
 @Component
 public class ProducerCollector implements BeanPostProcessor, EmbeddedValueResolverAware {
 
-    private final PulsarClient pulsarClient;
     private final UrlBuildService urlBuildService;
-    private final PulsarProperties pulsarProperties;
 
     private final Map<String, Producer> producers = new ConcurrentHashMap<>();
 
     private StringValueResolver stringValueResolver;
     private ProducerInterceptor producerInterceptor;
 
-    public ProducerCollector(PulsarClient pulsarClient, UrlBuildService urlBuildService, PulsarProperties pulsarProperties, ProducerInterceptor producerInterceptor) {
-        this.pulsarClient = pulsarClient;
+    private final PulsarClientContainer clientContainer;
+
+    public ProducerCollector(PulsarClientContainer clientContainer, UrlBuildService urlBuildService, ProducerInterceptor producerInterceptor) {
+        this.clientContainer = clientContainer;
         this.urlBuildService = urlBuildService;
-        this.pulsarProperties = pulsarProperties;
         this.producerInterceptor = producerInterceptor;
     }
 
@@ -46,11 +44,11 @@ public class ProducerCollector implements BeanPostProcessor, EmbeddedValueResolv
 
         if (beanClass.isAnnotationPresent(PulsarProducer.class) && bean instanceof PulsarProducerFactory) {
             producers.putAll(((PulsarProducerFactory) bean).getTopics().entrySet().stream()
-                    .map($ -> $.getValue().right.map(customNamespace -> new ProducerHolder(
+                    .map($ -> $.getValue().right.map(cluster -> new ProducerHolder(
                             stringValueResolver.resolveStringValue($.getKey()),
                             $.getValue().left,
                             $.getValue().middle,
-                            customNamespace)
+                            cluster)
                     ).orElseGet(() -> new ProducerHolder(
                             stringValueResolver.resolveStringValue($.getKey()),
                             $.getValue().left,
@@ -69,12 +67,12 @@ public class ProducerCollector implements BeanPostProcessor, EmbeddedValueResolv
 
     private Producer<?> buildProducer(ProducerHolder holder) {
         try {
-            final ProducerBuilder<?> producerBuilder = pulsarClient.newProducer(getSchema(holder))
-                    .topic(holder.getNamespace()
-                            .map(namespace -> urlBuildService.buildTopicUrl(holder.getTopic(), namespace))
-                            .orElseGet(() -> urlBuildService.buildTopicUrl(holder.getTopic())));
+            String cluster = holder.getCluster().orElse(PulsarClientContainer.DEFAULT_CLUSTER);
+            final ProducerBuilder<?> producerBuilder = clientContainer.getClient(cluster)
+                    .newProducer(getSchema(holder))
+                    .topic(urlBuildService.buildTopicUrl(holder.getTopic()));
 
-            if(pulsarProperties.isAllowInterceptor()) {
+            if (clientContainer.getProperties(cluster).isAllowInterceptor()) {
                 producerBuilder.intercept(producerInterceptor);
             }
 

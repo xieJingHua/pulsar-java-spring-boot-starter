@@ -1,5 +1,6 @@
 package io.github.majusko.pulsar.consumer;
 
+import io.github.majusko.pulsar.PulsarClientContainer;
 import io.github.majusko.pulsar.PulsarMessage;
 import io.github.majusko.pulsar.collector.ConsumerCollector;
 import io.github.majusko.pulsar.collector.ConsumerHolder;
@@ -23,53 +24,54 @@ import reactor.util.concurrent.Queues;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Component
-@DependsOn({"pulsarClient", "consumerCollector"})
+@DependsOn({"consumerCollector"})
 public class ConsumerAggregator implements EmbeddedValueResolverAware {
 
     private final Sinks.Many<FailedMessage> sink = Sinks.many().multicast().onBackpressureBuffer(Queues.SMALL_BUFFER_SIZE, false);
     private final ConsumerCollector consumerCollector;
-    private final PulsarClient pulsarClient;
-    private final ConsumerProperties consumerProperties;
-    private final PulsarProperties pulsarProperties;
+    private final PulsarClientContainer clientContainer;
     private final UrlBuildService urlBuildService;
     private final ConsumerInterceptor consumerInterceptor;
 
     private StringValueResolver stringValueResolver;
     private List<Consumer> consumers;
 
-    public ConsumerAggregator(ConsumerCollector consumerCollector, PulsarClient pulsarClient,
-                              ConsumerProperties consumerProperties, PulsarProperties pulsarProperties, UrlBuildService urlBuildService,
+
+    public ConsumerAggregator(ConsumerCollector consumerCollector, PulsarClientContainer clientContainer, UrlBuildService urlBuildService,
                               ConsumerInterceptor consumerInterceptor) {
         this.consumerCollector = consumerCollector;
-        this.pulsarClient = pulsarClient;
-        this.consumerProperties = consumerProperties;
-        this.pulsarProperties = pulsarProperties;
+        this.clientContainer = clientContainer;
         this.urlBuildService = urlBuildService;
         this.consumerInterceptor = consumerInterceptor;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
-        if (pulsarProperties.isAutoStart()) {
-            consumers = consumerCollector.getConsumers().entrySet().stream()
-                .filter(holder -> holder.getValue().getAnnotation().autoStart())
+        Map<String, PulsarProperties> allProperties = clientContainer.getAllProperties();
+        consumers = consumerCollector.getConsumers().entrySet().stream()
+                .filter(holder -> allProperties.get(holder.getValue().getAnnotation().cluster()).isAutoStart()
+                        && holder.getValue().getAnnotation().autoStart())
                 .map(holder -> subscribe(holder.getKey(), holder.getValue()))
                 .collect(Collectors.toList());
-        }
+
+
     }
 
     private Consumer<?> subscribe(String generatedConsumerName, ConsumerHolder holder) {
         try {
+            PulsarProperties pulsarProperties = clientContainer.getProperties(holder.getAnnotation().cluster());
             final String consumerName = stringValueResolver.resolveStringValue(holder.getAnnotation().consumerName());
+            final String cluster = stringValueResolver.resolveStringValue(holder.getAnnotation().cluster());
             final String subscriptionName = stringValueResolver.resolveStringValue(holder.getAnnotation().subscriptionName());
             final String topicName = stringValueResolver.resolveStringValue(holder.getAnnotation().topic());
             final String namespace = stringValueResolver.resolveStringValue(holder.getAnnotation().namespace());
             final SubscriptionType subscriptionType = urlBuildService.getSubscriptionType(holder);
-            final ConsumerBuilder<?> consumerBuilder = pulsarClient
+            final ConsumerBuilder<?> consumerBuilder = clientContainer.findClient(cluster)
                 .newConsumer(SchemaUtils.getSchema(holder.getAnnotation().serialization(),
                     holder.getAnnotation().clazz()))
                 .consumerName(urlBuildService.buildPulsarConsumerName(consumerName, generatedConsumerName))
@@ -99,8 +101,8 @@ public class ConsumerAggregator implements EmbeddedValueResolverAware {
                 consumerBuilder.intercept(consumerInterceptor);
             }
 
-            if (consumerProperties.getAckTimeoutMs() > 0) {
-                consumerBuilder.ackTimeout(consumerProperties.getAckTimeoutMs(), TimeUnit.MILLISECONDS);
+            if (pulsarProperties.getConsumer() != null && pulsarProperties.getConsumer().getAckTimeoutMs() > 0) {
+                consumerBuilder.ackTimeout(pulsarProperties.getConsumer().getAckTimeoutMs(), TimeUnit.MILLISECONDS);
             }
 
             urlBuildService.buildDeadLetterPolicy(

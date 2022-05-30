@@ -14,6 +14,8 @@ import java.lang.annotation.Target;
 public @interface PulsarConsumer {
     String topic();
 
+    String cluster() default "default";
+
     Class<?> clazz() default byte[].class;
 
     Serialization serialization() default Serialization.JSON;

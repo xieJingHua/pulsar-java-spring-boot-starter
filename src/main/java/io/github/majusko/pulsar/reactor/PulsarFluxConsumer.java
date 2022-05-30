@@ -17,6 +17,8 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
 
     private final String topic;
 
+    private String cluster;
+
     private final Class<?> messageClass;
 
     private final Serialization serialization;
@@ -39,6 +41,7 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
 
     private PulsarFluxConsumer(
         String topic,
+        String cluster,
         Class<?> messageClass,
         Serialization serialization,
         SubscriptionType subscriptionType,
@@ -49,10 +52,12 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
         boolean simple,
         SubscriptionInitialPosition initialPosition,
         int backPressureBufferSize,
-        String namespace) {
+        String namespace
+       ) {
         this.simpleSink = Sinks.many().multicast().onBackpressureBuffer(backPressureBufferSize, false);
         this.robustSink = Sinks.many().multicast().onBackpressureBuffer(backPressureBufferSize, false);
         this.topic = topic;
+        this.cluster = cluster;
         this.messageClass = messageClass;
         this.serialization = serialization;
         this.subscriptionType = subscriptionType;
@@ -67,6 +72,10 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
 
     public String getTopic() {
         return topic;
+    }
+
+    public String getCluster() {
+        return cluster;
     }
 
     public Class<?> getMessageClass() {
@@ -140,6 +149,8 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
     public static class FluxConsumerBuilder {
         private String topic;
 
+        private String cluster;
+
         private Class<?> messageClass = byte[].class;
 
         private Serialization serialization = Serialization.JSON;
@@ -212,6 +223,11 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
             return this;
         }
 
+        public FluxConsumerBuilder setCluster(String cluster) {
+            this.cluster = cluster;
+            return this;
+        }
+
         public FluxConsumerBuilder setMessageClass(Class<?> messageClass) {
             this.messageClass = messageClass;
             return this;
@@ -269,7 +285,7 @@ public class PulsarFluxConsumer<T> implements FluxConsumer<T> {
         public <T> PulsarFluxConsumer<T> build() throws ClientInitException {
             validateBuilder();
 
-            return new PulsarFluxConsumer<>(topic, messageClass, serialization, subscriptionType, consumerName, subscriptionName, maxRedeliverCount, deadLetterTopic, simple, initialPosition, backPressureBufferSize, namespace);
+            return new PulsarFluxConsumer<>(topic,cluster, messageClass, serialization, subscriptionType, consumerName, subscriptionName, maxRedeliverCount, deadLetterTopic, simple, initialPosition, backPressureBufferSize, namespace);
         }
 
         private void validateBuilder() throws ClientInitException {

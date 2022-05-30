@@ -9,7 +9,7 @@ public class ProducerHolder {
     private final String topic;
     private final Class<?> clazz;
     private final Serialization serialization;
-    private String namespace;
+    private String cluster;
 
     public ProducerHolder(String topic, Class<?> clazz, Serialization serialization) {
         this.topic = topic;
@@ -17,17 +17,17 @@ public class ProducerHolder {
         this.serialization = serialization;
     }
 
-    public ProducerHolder(String topic, Class<?> clazz, Serialization serialization, String namespace) {
+    public ProducerHolder(String topic, Class<?> clazz, Serialization serialization, String cluster) {
         this(topic, clazz, serialization);
-        this.namespace =  namespace;
+        this.cluster = cluster;
     }
 
     public String getTopic() {
         return topic;
     }
 
-    public Optional<String> getNamespace() {
-        return Optional.ofNullable(namespace);
+    public Optional<String> getCluster() {
+        return Optional.ofNullable(cluster);
     }
 
     public Class<?> getClazz() {
